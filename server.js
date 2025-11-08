@@ -2,30 +2,45 @@ const WebSocket = require('ws');
 const url = require('url');
 const admin = require('firebase-admin');
 
-// --- [SECURITY V2] Inisialisasi Firebase Admin ---
-// Ambil kredensial dari Environment Variables (akan kita atur di Render)
+// --- [SECURITY V3] Inisialisasi Firebase Admin (SESUAI .env.local) ---
 try {
-  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+  // 1. Ambil 3 variabel dari environment
+  const projectId = process.env.FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  // 2. Ambil private key DAN perbaiki formatnya (ganti '\\n' jadi '\n')
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
+
+  // 3. Pastikan semuanya ada
+  if (!projectId || !clientEmail || !privateKey) {
+    throw new Error("Missing Firebase Admin environment variables (PROJECT_ID, CLIENT_EMAIL, PRIVATE_KEY)");
+  }
+
+  // 4. Inisialisasi app
   admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount)
+    credential: admin.credential.cert({
+      projectId,
+      clientEmail,
+      privateKey,
+    })
   });
-  console.log("Firebase Admin SDK (Satpam) berhasil terhubung.");
+  console.log("Firebase Admin SDK (Satpam) v3 berhasil terhubung.");
 } catch (error) {
   console.error("GAGAL KONEK KE FIREBASE ADMIN:", error.message);
-  console.log("Pastikan FIREBASE_SERVICE_ACCOUNT_KEY sudah diatur di Environment Variables Render.");
+  console.log("Pastikan 3 variabel Firebase Admin (PROJECT_ID, CLIENT_EMAIL, PRIVATE_KEY) sudah diatur di Environment Variables Render.");
 }
 const db = admin.firestore();
-// --- [AKHIR SECURITY V2] ---
+// --- [AKHIR SECURITY V3] ---
+
 
 const PORT = process.env.PORT || 8080;
 const wss = new WebSocket.Server({ port: PORT });
 
-console.log(`Relay Server (POIN 3) v2 berjalan di port ${PORT}`);
+console.log(`Relay Server (POIN 3) v3 berjalan di port ${PORT}`);
 
-// Fungsi untuk memverifikasi Kunci Lisensi
+// Fungsi untuk memverifikasi Kunci Lisensi (tidak berubah)
 async function verifyLicense(licenseKey) {
   if (!licenseKey) {
-    return false; // Jika tidak ada kunci, tolak
+    return false;
   }
   try {
     const licenseRef = db.collection('licenses').doc(licenseKey);
@@ -33,15 +48,15 @@ async function verifyLicense(licenseKey) {
 
     if (!doc.exists) {
       console.log(`Verifikasi GAGAL: Kunci '${licenseKey}' tidak ditemukan.`);
-      return false; // Kunci tidak ada di database
+      return false;
     }
     
     if (doc.data().status === 'active') {
       console.log(`Verifikasi SUKSES: Kunci '${licenseKey}' valid dan aktif.`);
-      return true; // Kunci ada dan aktif
+      return true;
     } else {
       console.log(`Verifikasi GAGAL: Kunci '${licenseKey}' tidak aktif.`);
-      return false; // Kunci ada tapi statusnya 'inactive'
+      return false;
     }
   } catch (error) {
     console.error("Error saat verifikasi lisensi:", error);
@@ -49,30 +64,23 @@ async function verifyLicense(licenseKey) {
   }
 }
 
-
-// Ini berjalan setiap kali ada koneksi baru
+// Logika koneksi WebSocket (tidak berubah)
 wss.on('connection', async (ws, req) => {
-  // Ambil URL lengkap (termasuk parameter)
   const fullUrl = new url.URL(req.url, `wss://${req.headers.host}`);
   
-  // --- [SECURITY V2] Verifikasi Kunci Lisensi ---
   const licenseKey = fullUrl.searchParams.get('license');
   const isLicenseValid = await verifyLicense(licenseKey);
 
   if (!isLicenseValid) {
-    // Jika lisensi tidak valid, TOLAK koneksi
     console.log("Koneksi ditolak (lisensi tidak valid atau hilang).");
-    ws.close(1008, "Invalid License Key"); // 1008 = Policy Violation
+    ws.close(1008, "Invalid License Key");
     return;
   }
-  // --- [AKHIR SECURITY V2] ---
 
-  // Jika lolos, baru lanjutkan
   console.log('Klien baru terhubung (lisensi OK).');
 
   ws.on('message', message => {
     const messageString = message.toString();
-    // Broadcast ke semua klien LAIN
     wss.clients.forEach(client => {
       if (client !== ws && client.readyState === WebSocket.OPEN) {
         client.send(messageString);
