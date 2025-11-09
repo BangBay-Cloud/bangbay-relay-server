@@ -6,16 +6,19 @@ local BASE_URL_VERCEL = "https://bengkel-overlay-bang-bay.vercel.app"
 local RELAY_URL_RENDER = "wss://bangbay-relay-server.onrender.com"
 local RELAY_URL_PARAM_NAME = "relay"
 local ROOM_ID_PARAM_NAME = "session"
+-- --- [TAMBAHAN 1: Parameter Kunci Lisensi] ---
+local LICENSE_KEY_PARAM_NAME = "license" 
+-- --- [AKHIR TAMBAHAN 1] ---
 
 -- Variabel global untuk menyimpan referensi (Anti-Crash)
 local global_dock_source = nil
 local global_overlay_sources = {} 
-local global_settings = nil -- [FIX #9] Variabel untuk menyimpan settings
+local global_settings = nil 
 
 -- == 2. FUNGSI UNTUK DESKRIPSI ==
 function script_description()
     return "=== BangBay Digital ID - Popup Chat Kit (POIN 3) ===\n\n" ..
-           "1. Masukkan Room ID & pilih tema Dock (otomatis update).\n" ..
+           "1. Masukkan Room ID, Kunci Lisensi & pilih tema Dock.\n" .. -- Diedit sedikit
            "2. Isi detail Pembuat Overlay.\n" ..
            "3. PENTING: Klik Scene tujuan Anda di OBS agar aktif.\n" ..
            "4. Klik tombol 'Terapkan Overlay' di bawah."
@@ -28,6 +31,10 @@ function script_properties()
     -- --- Grup 1: Koneksi ---
     obs.obs_properties_add_group(props, "group_connection", "Pengaturan Koneksi (Wajib)", obs.OBS_GROUP_NORMAL, nil)
     obs.obs_properties_add_text(props, "room_id", "Room ID (dari SSN)", obs.OBS_TEXT_DEFAULT)
+
+    -- --- [TAMBAHAN 2: Kotak Teks Kunci Lisensi] ---
+    obs.obs_properties_add_text(props, "license_key", "Kunci Lisensi (dari Web)", obs.OBS_TEXT_PASSWORD) -- Tipe PASSWORD agar disensor
+    -- --- [AKHIR TAMBAHAN 2] ---
 
     -- --- Grup 2: Pengaturan Dock (Global) ---
     obs.obs_properties_add_group(props, "group_dock", "Pengaturan Dock (Otomatis)", obs.OBS_GROUP_NORMAL, nil)
@@ -47,47 +54,48 @@ function script_properties()
     -- 2. Kotak Teks untuk "Nama Sources" (Custom)
     obs.obs_properties_add_text(props, "overlay_source_name", "Nama Source (Custom)", obs.OBS_TEXT_DEFAULT)
     
-    -- --- [FIX #9] TAMBAHKAN TOMBOL "APPLY/OK" ---
+    -- Tombol "APPLY/OK" (Kode Asli-mu)
     obs.obs_properties_add_button(props, 
         "apply_button",                -- ID internal
         "Terapkan Overlay ke Scene Aktif", -- Teks di tombol
         apply_overlay_button_clicked   -- Fungsi yang dipanggil saat diklik
     )
-    -- --- [AKHIR FIX #9] ---
     
     return props
 end
 
 -- == 4. FUNGSI YANG DIPANGGIL TOMBOL "APPLY/OK" ==
--- Ini adalah logika 'berat' yang kita pindahkan
 function apply_overlay_button_clicked(props, prop)
     print("Skrip BangBay Popup: Tombol 'Terapkan Overlay' diklik.")
 
-    -- Ambil settings yang terakhir disimpan
     if global_settings == nil then
         print("Skrip BangBay Popup: Settings belum siap. Coba ketik sesuatu di Room ID dulu.")
         return
     end
 
-    -- Ambil semua nilai dari settings
+    -- --- [TAMBAHAN 3: Ambil & Validasi Kunci Lisensi] ---
     local room_id = obs.obs_data_get_string(global_settings, "room_id")
+    local license_key = obs.obs_data_get_string(global_settings, "license_key") -- Ambil Kunci Lisensi
     local theme_name = obs.obs_data_get_string(global_settings, "theme_name")
     local overlay_source_name = obs.obs_data_get_string(global_settings, "overlay_source_name")
 
-    -- Validasi
-    if room_id == "" then print("Skrip BangBay Popup: Harap isi Room ID.") return end
+    -- Validasi BARU
+    if room_id == "" or license_key == "" then 
+        print("Skrip BangBay Popup: Harap isi Room ID dan Kunci Lisensi.") 
+        return 
+    end
     if theme_name == "" or overlay_source_name == "" then
         print("Skrip BangBay Popup: Harap isi Tema Overlay dan Nama Source.")
         return
     end
 
-    -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
-    -- B. MEMBUAT/UPDATE OVERLAY (Logika dari v9)
-    -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+    -- Buat URL BARU dengan Kunci Lisensi
+    local overlay_query_params = "?" .. ROOM_ID_PARAM_NAME .. "=" .. room_id .. "&" .. RELAY_URL_PARAM_NAME .. "=" .. RELAY_URL_RENDER .. "&" .. LICENSE_KEY_PARAM_NAME .. "=" .. license_key
+    -- --- [AKHIR TAMBAHAN 3] ---
     
-    local overlay_query_params = "?" .. ROOM_ID_PARAM_NAME .. "=" .. room_id .. "&" .. RELAY_URL_PARAM_NAME .. "=" .. RELAY_URL_RENDER
     local overlay_url = BASE_URL_VERCEL .. "/" .. theme_name .. overlay_query_params
     
+    -- Sisa logika v10 (Anti-Crash) tidak diubah...
     local overlay_settings = obs.obs_data_create()
     obs.obs_data_set_string(overlay_settings, "url", overlay_url)
     obs.obs_data_set_int(overlay_settings, "width", 1920)
@@ -120,35 +128,38 @@ function apply_overlay_button_clicked(props, prop)
         else
             print("Skrip BangBay Popup: GAGAL menemukan scene aktif. Klik salah satu scene dulu.")
         end
-        
     else
         obs.obs_source_update(overlay_source, overlay_settings)
         print("Skrip BangBay Popup: Overlay '" .. overlay_source_name .. "' berhasil diperbarui.")
     end
-    
     obs.obs_data_release(overlay_settings)
 end
 
 -- == 5. FUNGSI LOGIKA UTAMA (SAAT PENGATURAN DIUBAH) ==
--- Ini sekarang JAUH LEBIH RINGAN
 function script_update(settings)
-    
-    -- --- [FIX #9] Simpan settings ke global ---
     global_settings = settings 
     
+    -- --- [TAMBAHAN 4: Ambil & Validasi Kunci Lisensi] ---
     local room_id    = obs.obs_data_get_string(settings, "room_id")
+    local license_key = obs.obs_data_get_string(settings, "license_key") -- Ambil Kunci Lisensi
     local reader_name = obs.obs_data_get_string(settings, "reader_name")
 
-    if room_id == "" then print("Skrip BangBay Popup: Harap isi Room ID.") return end
+    -- Validasi BARU
+    if room_id == "" or license_key == "" then 
+        print("Skrip BangBay Popup: Harap isi Room ID dan Kunci Lisensi.") 
+        return 
+    end
     if reader_name == "" then print("Skrip BangBay Popup: Harap pilih tema Dock.") return end
 
-    -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+    -- Buat URL BARU dengan Kunci Lisensi
+    local dock_query_params = "?" .. ROOM_ID_PARAM_NAME .. "=" .. room_id .. "&" .. RELAY_URL_PARAM_NAME .. "=" .. RELAY_URL_RENDER .. "&" .. LICENSE_KEY_PARAM_NAME .. "=" .. license_key
+    -- --- [AKHIR TAMBAHAN 4] ---
+
     -- A. MEMBUAT/UPDATE DOCK (Global, hanya 1)
-    -- (HANYA ini yang dijalankan otomatis)
-    -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
     local dock_name = "BangBay_Dock"
-    local dock_query_params = "?" .. ROOM_ID_PARAM_NAME .. "=" .. room_id .. "&" .. RELAY_URL_PARAM_NAME .. "=" .. RELAY_URL_RENDER
     local dock_url = BASE_URL_VERCEL .. "/" .. reader_name .. dock_query_params
+    
+    -- Sisa logika v10 (Anti-Crash) tidak diubah...
     local dock_settings = obs.obs_data_create()
     obs.obs_data_set_string(dock_settings, "url", dock_url)
     obs.obs_data_set_int(dock_settings, "width", 400) 
@@ -165,14 +176,10 @@ function script_update(settings)
     end
     if obs.obs_frontend_add_dock then obs.obs_frontend_add_dock(global_dock_source) end
     obs.obs_data_release(dock_settings)
-
-    -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
-    -- B. LOGIKA OVERLAY SUDAH DIPINDAH
-    -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 end
 
 -- == 6. FUNGSI UNTUK MEMBERSIHKAN (ANTI-CRASH) ==
--- (Fungsi ini tidak berubah dari v9)
+-- (Fungsi ini tidak berubah dari v10)
 function script_unload()
     print("Skrip BangBay Popup: Unloading...")
     if global_dock_source ~= nil then
